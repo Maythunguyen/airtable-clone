@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@theme {
+	--font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+               "Helvetica Neue", Arial, "Noto Sans", sans-serif,
+               "Apple Color Emoji", "Segoe UI Emoji";
+}
+  
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+html, body { height: 100%; }
