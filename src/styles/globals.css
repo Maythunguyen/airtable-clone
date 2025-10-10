@@ -4,6 +4,9 @@
 	--font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
                "Helvetica Neue", Arial, "Noto Sans", sans-serif,
                "Apple Color Emoji", "Segoe UI Emoji";
+
+  --color-bg: #f8f9f2;
+  --color-text-primary: #333333;
 }
   
 .font-sans {
