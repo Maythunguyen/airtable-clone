@@ -8,11 +8,11 @@ export default function DashboardPage() {
   const [name, setName] = useState("");
 
   const { data: bases, isLoading } = api.base.list.useQuery();
-  const createBase = api.base.create.useMutation({
-    onSuccess: () => { utils.base.list.invalidate(); setName(""); },
+  const createBase = api.base.createBase.useMutation({
+    onSuccess: async () => { await utils.base.list.invalidate(); setName(""); },
   });
-  const delBase = api.base.delete.useMutation({
-    onSuccess: () => utils.base.list.invalidate(),
+  const delBase = api.base.deleteBase.useMutation({
+    onSuccess: async () => { await utils.base.list.invalidate(); },
   });
 
   return (

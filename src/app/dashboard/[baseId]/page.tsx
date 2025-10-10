@@ -11,10 +11,10 @@ export default function BaseDetailPage() {
 
   const { data: tables, isLoading } = api.table.list.useQuery({ baseId });
   const createTable = api.table.create.useMutation({
-    onSuccess: () => { utils.table.list.invalidate(); setName(""); },
+    onSuccess: async () => { await utils.table.list.invalidate(); setName(""); },
   });
   const delTable = api.table.delete.useMutation({
-    onSuccess: () => utils.table.list.invalidate(),
+    onSuccess: async () => { await utils.table.list.invalidate(); },
   });
 
   return (
