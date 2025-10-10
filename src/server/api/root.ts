@@ -1,12 +1,17 @@
 
-import { createTRPCRouter } from "~/server/api/trpc";
+import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
+import { tableRouter } from "./routers/table";
+import { baseRouter } from "./routers/base";
 
 /**
  * This is the primary router for your server.
  *
  * All routers added in /api/routers should be manually added here.
  */
-export const appRouter = createTRPCRouter({});
+export const appRouter = createTRPCRouter({
+    base: baseRouter,
+    table: tableRouter,
+});
 
 // export type definition of API
 export type AppRouter = typeof appRouter;
@@ -18,6 +23,4 @@ export type AppRouter = typeof appRouter;
  * const res = await trpc.post.all();
  *       ^? Post[]
  */
-export const createCallerFactory = (getCtx: () => Promise<Parameters<typeof appRouter.createCaller>[0]>) => {
-  return async () => appRouter.createCaller(await getCtx());
-};
+export const createCaller = createCallerFactory(appRouter);

@@ -39,6 +39,9 @@ export const authConfig = {
 	],
   	adapter: PrismaAdapter(db),
 		callbacks: {
+			async redirect() {
+				return "/dashboard";
+			},
 			session: ({ session, user }) => ({
 			...session,
 			user: {
@@ -47,4 +50,6 @@ export const authConfig = {
 			},
 			}),
 		},
+	
+
 } satisfies NextAuthConfig;
