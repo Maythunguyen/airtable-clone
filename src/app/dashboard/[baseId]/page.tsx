@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import { api } from "~/trpc/react";
 import TableTabs from "../../_components/TableTab";
 
-export default function BaseTabsPage({ children }: { children: React.ReactNode }) {
+export default function BaseTabsPage() {
     const { baseId } = useParams<{ baseId: string }>();
     const router = useRouter();
     const utils = api.useUtils();
@@ -30,9 +30,6 @@ export default function BaseTabsPage({ children }: { children: React.ReactNode }
 				creating={createTable.isPending}
 				onCreate={() => createTable.mutate({ baseId, name: nextName })}
 			/>
-				<div className="flex-1 overflow-auto">
-				{children}
-				</div>
 			<div className="p-6 text-sm text-gray-600">
 			{isLoading
 				? "Loading…"
