@@ -1,56 +1,45 @@
 "use client";
 
+import { useParams, useRouter } from "next/navigation";
 import { api } from "~/trpc/react";
-import { useParams } from "next/navigation";
-import { useState } from "react";
+import TableTabs from "../../_components/TableTab";
 
-export default function BaseDetailPage() {
-  const { baseId } = useParams<{ baseId: string }>();
-  const utils = api.useUtils();
-  const [name, setName] = useState("");
+export default function BaseTabsPage({ children }: { children: React.ReactNode }) {
+    const { baseId } = useParams<{ baseId: string }>();
+    const router = useRouter();
+    const utils = api.useUtils();
 
-  const { data: tables, isLoading } = api.table.list.useQuery({ baseId });
-  const createTable = api.table.create.useMutation({
-    onSuccess: async () => { await utils.table.list.invalidate(); setName(""); },
-  });
-  const delTable = api.table.delete.useMutation({
-    onSuccess: async () => { await utils.table.list.invalidate(); },
-  });
+    const { data: tables, isLoading } = api.table.list.useQuery({ baseId });
 
-  return (
-    <div className="mx-auto max-w-3xl p-8 space-y-6">
-      <h1 className="text-2xl font-semibold">Tables</h1>
+    const createTable = api.table.createTable.useMutation({
+      onSuccess: async () => {
+        await utils.table.list.invalidate({ baseId });
+        router.push(`/dashboard/${baseId}`);
+      },
+    });
 
-      <div className="flex gap-2">
-        <input
-          className="w-full rounded border px-3 py-2"
-          placeholder="New table name…"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <button
-          className="rounded bg-green-600 px-4 py-2 text-white disabled:opacity-50"
-          disabled={!name || createTable.isPending}
-          onClick={() => createTable.mutate({ baseId, name })}
-        >
-          {createTable.isPending ? "Creating…" : "Add"}
-        </button>
-      </div>
+    const nextName =
+      (tables?.length ?? 0) === 0 ? "Table 1" : `Table ${((tables?.length ?? 0) + 1)}`;
 
-      {isLoading ? (
-        <div>Loading…</div>
-      ) : (
-        <ul className="space-y-3">
-          {tables?.map((t) => (
-            <li key={t.id} className="flex items-center justify-between rounded border bg-white p-3">
-              <span>{t.name}</span>
-              <button className="text-sm text-red-500 hover:underline" onClick={() => delTable.mutate({ id: t.id })}>
-                Delete
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
+    return (
+      	<div className="border-b bg-white">
+			<TableTabs
+				baseId={baseId}
+				tables={tables ?? []}
+				loading={isLoading}
+				creating={createTable.isPending}
+				onCreate={() => createTable.mutate({ baseId, name: nextName })}
+			/>
+				<div className="flex-1 overflow-auto">
+				{children}
+				</div>
+			<div className="p-6 text-sm text-gray-600">
+			{isLoading
+				? "Loading…"
+				: (tables?.length ?? 0) > 0
+				? "Pick a table above, or click + to create a new one."
+				: "This base has no tables yet. Click + to create one."}
+			</div>
+      	</div>
+    );
 }

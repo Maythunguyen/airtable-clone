@@ -29,7 +29,8 @@
     "paths": {
       "~/*": ["./src/*"],
       "@types/*": ["src/types/*"],
-      "@schemas/*": ["src/schemas/*"]
+      "@schemas/*": ["src/schemas/*"],
+      "@lib/*": ["src/lib/*"],
     }
   },
   "include": [
