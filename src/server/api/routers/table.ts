@@ -11,6 +11,22 @@ import {
 } from "~/schemas/table";
 import { z } from "zod";
 import { faker } from "@faker-js/faker";
+import { addRowsInput } from "~/schemas/row";
+import { PrismaClient } from "@prisma/client";
+import type { Column } from "@prisma/client";
+
+
+// helper to fetch columns (we seed JSON keyed by columnId)
+async function getColumnsByTable(db: PrismaClient, tableId: string) {
+    const cols: Column[] = await db.column.findMany({
+        where: { tableId },
+        orderBy: { position: "asc" },
+    });
+
+    const byName: Record<string, Column> = Object.fromEntries(cols.map((c) => [c.name, c]));
+
+    return { cols, byName };
+}
 
 export const tableRouter = createTRPCRouter({
     list: protectedProcedure
@@ -38,17 +54,21 @@ export const tableRouter = createTRPCRouter({
                 data: [
                     { tableId: table.id, name: "Name",  type: "TEXT",   position: 0 },
                     { tableId: table.id, name: "Notes", type: "TEXT",   position: 1 },
-                    { tableId: table.id, name: "Score", type: "NUMBER", position: 2 },
+                    { tableId: table.id, name: "Assignee", type: "TEXT", position: 2 },
+                    { tableId: table.id, name: "Status", type: "TEXT", position: 3 },
+                    { tableId: table.id, name: "Attachments", type: "TEXT", position: 4 },
                 ],
             });
 
 
-            const rows = Array.from({ length: 30 }).map(() => ({
+            const rows = Array.from({ length: 5 }).map(() => ({
             tableId: table.id,
                 data: {
-                    Name: faker.person.fullName(),
+                    Name: faker.commerce.productName(),
                     Notes: faker.lorem.sentence(),
-                    Score: faker.number.int({ min: 0, max: 100 }),
+                    Assignee: `${faker.person.firstName()} ${faker.person.lastName()}`,
+                    Status: faker.helpers.arrayElement(["To Do", "In Progress", "Done"]),
+                    Attachments: "—",
                 },
             }));
             await tx.row.createMany({ data: rows });
@@ -58,6 +78,72 @@ export const tableRouter = createTRPCRouter({
 
         return result;
     }),
+
+    addRows: protectedProcedure
+        .input(addRowsInput)
+        .mutation(async ({ ctx, input }) => {
+            // verify owner
+            const table = await ctx.db.table.findFirstOrThrow({
+                where: { id: input.tableId, base: { ownerId: ctx.session.user.id } },
+                include: { base: true },
+            });
+
+            const { byName } = await getColumnsByTable(ctx.db, table.id);
+            const mkRowData = (): Record<string, string | number> => {
+                const getId = (name: string) => byName[name]?.id ?? "";
+                return {
+                    [getId("Name")]: faker.commerce.productName(),
+                    [getId("Notes")]: faker.commerce.productDescription(),
+                    [getId("Assignee")]: `${faker.person.firstName()} ${faker.person.lastName()}`,
+                    [getId("Status")]: faker.helpers.arrayElement(["To Do", "In Progress", "Done"]),
+                    [getId("Attachments")]: "—",
+                };
+            };
+            const CHUNK = 5_000;
+            let remaining = input.count;
+
+            while (remaining > 0) {
+                const n = Math.min(CHUNK, remaining);
+                const data = Array.from({ length: n }, () => ({
+                tableId: table.id,
+                data: mkRowData(),
+                }));
+                await ctx.db.row.createMany({ data });
+                remaining -= n;
+            }
+
+            return { success: true };
+        }),
+    
+    listRows: protectedProcedure
+        .input(
+        // simple keyset pagination by (tableId, id)
+        // add optional sort/filter/search later and push down to SQL
+            z.object({
+                tableId: z.string().min(1),
+                limit: z.number().int().min(1).max(500).default(100),
+                cursor: z.string().nullish(), // last seen row.id
+            })
+        )
+        .query(async ({ ctx, input }) => {
+            const where = { tableId: input.tableId };
+            const take = input.limit + 1;
+
+            const rows = await ctx.db.row.findMany({
+                where,
+                take,
+                ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+                orderBy: { id: "asc" },
+            });
+
+            let nextCursor: string | undefined = undefined;
+            if (rows.length > input.limit) {
+                const next = rows.pop()!;
+                nextCursor = next.id;
+            }
+            return { items: rows, nextCursor };
+        }),
+
 
     deleteTable: protectedProcedure
         .input(deleteTableInput)
