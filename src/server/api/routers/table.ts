@@ -3,7 +3,6 @@ import {
   listTablesInput,
   createTableInput,
   deleteTableInput,
-  createColumnInput,
   deleteColumnInput,
   tableOutput,
   columnOutput,
@@ -12,9 +11,12 @@ import {
 import { z } from "zod";
 import { faker } from "@faker-js/faker";
 import { addRowsInput } from "~/schemas/row";
+import { AddColumnsInput } from "~/schemas/column";
 import { PrismaClient } from "@prisma/client";
-import type { Column } from "@prisma/client";
-
+import type { Prisma, Column } from "@prisma/client";
+type JsonValue  = Prisma.JsonValue;
+type JsonObject = Prisma.JsonObject;
+type InputJson  = Prisma.InputJsonValue;
 
 // helper to fetch columns (we seed JSON keyed by columnId)
 async function getColumnsByTable(db: PrismaClient, tableId: string) {
@@ -42,42 +44,46 @@ export const tableRouter = createTRPCRouter({
         }),
 
     createTable: protectedProcedure
-        .input(createTableInput) 
+        .input(createTableInput)
         .output(tableOutput)
         .mutation(async ({ ctx, input }) => {
-        const result = await ctx.db.$transaction(async (tx) => {
+            const result = await ctx.db.$transaction(async (tx) => {
             const table = await tx.table.create({
                 data: { baseId: input.baseId, name: input.name },
             });
 
             await tx.column.createMany({
                 data: [
-                    { tableId: table.id, name: "Name",  type: "TEXT",   position: 0 },
-                    { tableId: table.id, name: "Notes", type: "TEXT",   position: 1 },
-                    { tableId: table.id, name: "Assignee", type: "TEXT", position: 2 },
-                    { tableId: table.id, name: "Status", type: "TEXT", position: 3 },
-                    { tableId: table.id, name: "Attachments", type: "TEXT", position: 4 },
+                { tableId: table.id, name: "Name",        type: "TEXT", position: 0 },
+                { tableId: table.id, name: "Notes",       type: "TEXT", position: 1 },
+                { tableId: table.id, name: "Assignee",    type: "TEXT", position: 2 },
+                { tableId: table.id, name: "Status",      type: "TEXT", position: 3 },
+                { tableId: table.id, name: "Attachments", type: "TEXT", position: 4 },
                 ],
             });
 
-
+            const createdCols = await tx.column.findMany({
+                where: { tableId: table.id },
+                orderBy: { position: "asc" },
+            });
+            const byName = Object.fromEntries(createdCols.map(c => [c.name, c.id]));
             const rows = Array.from({ length: 5 }).map(() => ({
-            tableId: table.id,
+                tableId: table.id,
                 data: {
-                    Name: faker.commerce.productName(),
-                    Notes: faker.lorem.sentence(),
-                    Assignee: `${faker.person.firstName()} ${faker.person.lastName()}`,
-                    Status: faker.helpers.arrayElement(["To Do", "In Progress", "Done"]),
-                    Attachments: "—",
-                },
+                [byName["Name"]]: faker.commerce.productName(),
+                [byName["Notes"]]: faker.lorem.sentence(),
+                [byName["Assignee"]]: `${faker.person.firstName()} ${faker.person.lastName()}`,
+                [byName["Status"]]: faker.helpers.arrayElement(["To Do", "In Progress", "Done"]),
+                [byName["Attachments"]]: "—",
+                } as Prisma.InputJsonValue,
             }));
-            await tx.row.createMany({ data: rows });
+                await tx.row.createMany({ data: rows });
 
-            return table;
-        });
+                return table;
+            });
 
-        return result;
-    }),
+            return result;
+        }),
 
     addRows: protectedProcedure
         .input(addRowsInput)
@@ -153,20 +159,69 @@ export const tableRouter = createTRPCRouter({
         return { success: true };
         }),
 
+    listColumns: protectedProcedure
+        .input(
+        // simple keyset pagination by (tableId, id)
+        // add optional sort/filter/search later and push down to SQL
+            z.object({
+                tableId: z.string().min(1),
+                limit: z.number().int().min(1).max(500).default(100),
+                cursor: z.string().nullish(), // last seen column.id
+            })
+        )
+        .query(async ({ ctx, input }) => {
+            const where = { tableId: input.tableId };
+            const take = input.limit + 1;
+
+            const columns = await ctx.db.column.findMany({
+                where,
+                take,
+                ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
+                orderBy: { id: "asc" },
+            });
+
+            let nextCursor: string | undefined = undefined;
+            if (columns.length > input.limit) {
+                const next = columns.pop()!;
+                nextCursor = next.id;
+            }
+            return { items: columns, nextCursor };
+        }),
+    
+        listColumnsSimple: protectedProcedure
+            .input(z.object({ tableId: z.string().min(1) }))
+            .query(({ ctx, input }) =>
+                ctx.db.column.findMany({
+                where: { tableId: input.tableId },
+                orderBy: { position: "asc" },
+                })
+            ),
+
+
     addColumn: protectedProcedure
-        .input(createColumnInput)
+        .input(AddColumnsInput)
         .output(columnOutput)
         .mutation(async ({ ctx, input }) => {
-        return ctx.db.column.create({
-            data: {
-                tableId: input.tableId,
-                name: input.name,
-                type: input.type,
-                position: input.position,
-            },
-        });
-    }),
+            const { tableId, name, type, position } = input;
 
+            return await ctx.db.$transaction(async (tx) => {
+                const col = await tx.column.create({data: { tableId, name, type, position },});
+                const rows = await tx.row.findMany({ where: { tableId } });
+
+                if (rows.length) {
+                    const defaultValue = type === "NUMBER" ? 0 : "";
+                    await Promise.all(
+                        rows.map((r) =>
+                                tx.row.update({
+                                where: { id: r.id },
+                                data: { data: { ...(r.data as JsonObject), [col.id]: defaultValue } as InputJson },
+                            })
+                        )
+                    );
+                }
+                return col;
+            });
+        }),
     deleteColumn: protectedProcedure
         .input(deleteColumnInput)
         .output(z.object({ success: z.literal(true) }))

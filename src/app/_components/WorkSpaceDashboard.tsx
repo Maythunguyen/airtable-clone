@@ -17,14 +17,14 @@ export function SidebarWithWorkspaces() {
 
 	const createBase = api.base.createBase.useMutation({
 		onSuccess: async (base) => {
-		await utils.base.list.invalidate();
-		router.push(`/dashboard/${base.id}`);
+			await utils.base.list.invalidate();
+			router.push(`/dashboard/${base.id}`);
 		},
 	});
 
 	const delBase = api.base.deleteBase.useMutation({
 		onSuccess: async () => {
-		await utils.base.list.invalidate();
+			await utils.base.list.invalidate();
 		},
 	});
 
