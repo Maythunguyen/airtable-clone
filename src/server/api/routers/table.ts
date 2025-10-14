@@ -118,7 +118,7 @@ export const tableRouter = createTRPCRouter({
                 remaining -= n;
             }
 
-            return { success: true };
+            return { success: true,  count: input.count };
         }),
     
     listRows: protectedProcedure
