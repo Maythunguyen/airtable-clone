@@ -44,15 +44,16 @@ export const baseRouter = createTRPCRouter({
                     where: { tableId: table.id },
                     orderBy: { position: "asc" },
                 });
-                const byName = Object.fromEntries(createdCols.map((c) => [c.name, c.id]));
+                const byName = Object.fromEntries(createdCols.map(c => [c.name, c.id])) as Record<string, string>;
+                const colId = (name: string) => byName[name]!;
 
                 // Seed 5 faker rows
                 const rows = Array.from({ length: 5 }).map(() => {
-                const nameId = String(byName["Name"]);
-                const notesId = String(byName["Notes"]);
-                const assigneeId = String(byName["Assignee"]);
-                const statusId = String(byName["Status"]);
-                const attachmentsId = String(byName["Attachments"]);
+                const nameId = String(colId("Name"));
+                const notesId = String(colId("Notes"));
+                const assigneeId = String(colId("Assignee"));
+                const statusId = String(colId("Status"));
+                const attachmentsId = String(colId("Attachments"));
 
                 return {
                     tableId: table.id,

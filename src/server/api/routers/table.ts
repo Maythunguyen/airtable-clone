@@ -66,15 +66,17 @@ export const tableRouter = createTRPCRouter({
                 where: { tableId: table.id },
                 orderBy: { position: "asc" },
             });
-            const byName = Object.fromEntries(createdCols.map(c => [c.name, c.id]));
+            
+            const byName = Object.fromEntries(createdCols.map(c => [c.name, c.id])) as Record<string, string>;
+            const colId = (name: string) => byName[name]!;
             const rows = Array.from({ length: 5 }).map(() => ({
                 tableId: table.id,
                 data: {
-                [byName["Name"]]: faker.commerce.productName(),
-                [byName["Notes"]]: faker.lorem.sentence(),
-                [byName["Assignee"]]: `${faker.person.firstName()} ${faker.person.lastName()}`,
-                [byName["Status"]]: faker.helpers.arrayElement(["To Do", "In Progress", "Done"]),
-                [byName["Attachments"]]: "—",
+                    [colId("Name")]: faker.commerce.productName(),
+                    [colId("Notes")]: faker.lorem.sentence(),
+                    [colId("Assignee")]: `${faker.person.firstName()} ${faker.person.lastName()}`,
+                    [colId("Status")]: faker.helpers.arrayElement(["To Do", "In Progress", "Done"]),
+                    [colId("Attachments")]: "—",
                 } as Prisma.InputJsonValue,
             }));
                 await tx.row.createMany({ data: rows });
@@ -204,23 +206,25 @@ export const tableRouter = createTRPCRouter({
         .mutation(async ({ ctx, input }) => {
             const { tableId, name, type, position } = input;
 
-            return await ctx.db.$transaction(async (tx) => {
-                const col = await tx.column.create({data: { tableId, name, type, position },});
-                const rows = await tx.row.findMany({ where: { tableId } });
+            return await ctx.db.$transaction(
+                async (tx) => {
+                    const col = await tx.column.create({
+                        data: { tableId, name, type, position },
+                    });
 
-                if (rows.length) {
                     const defaultValue = type === "NUMBER" ? 0 : "";
-                    await Promise.all(
-                        rows.map((r) =>
-                                tx.row.update({
-                                where: { id: r.id },
-                                data: { data: { ...(r.data as JsonObject), [col.id]: defaultValue } as InputJson },
-                            })
-                        )
-                    );
-                }
-                return col;
-            });
+
+                    // Single statement: add/overwrite the new key for ALL rows in this table
+                    await tx.$executeRaw`
+                    UPDATE "Row"
+                    SET "data" = ("data"::jsonb) || jsonb_build_object(${col.id}, ${defaultValue})
+                    WHERE "tableId" = ${tableId}
+                    `;
+
+                    return col;
+                },
+                { timeout: 20_000, maxWait: 10_000 }
+                );
         }),
     deleteColumn: protectedProcedure
         .input(deleteColumnInput)
