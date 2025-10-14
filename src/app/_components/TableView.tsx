@@ -217,11 +217,11 @@ export default function TableView({ baseId, tableId }: TableViewProps) {
 
 		const lastItem = virtualItems[virtualItems.length - 1];
 		if (
-			lastItem.index >= viewRows.length - 1 &&
+			lastItem?.index !== undefined && lastItem.index >= viewRows.length - 1 &&
 			rowsQuery.hasNextPage &&
 			!rowsQuery.isFetchingNextPage
 		) {
-			rowsQuery.fetchNextPage();
+			void rowsQuery.fetchNextPage();
 		}
 		}, [
 		rowVirtualizer.getVirtualItems(), // reacts to visible items
