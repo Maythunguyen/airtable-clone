@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-table";
 import { api } from "~/trpc/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useCellKeyboardNav } from "~/hooks/useCellKeyboardNav";
 
 type RowWire = {
 	id: string;
@@ -99,19 +100,30 @@ export default function TableView({ baseId, tableId }: TableViewProps) {
 		[addColumn, colsQuery.data, tableId]
 	);
 
+	// Keyboard navigation
+	const nav = useCellKeyboardNav({
+		getTotalCols: () => dynamicDataCols.length + 2,
+		getRowCount: () => viewRows.length,
+		onReachEndRow: async () => {
+			if (rowsQuery.hasNextPage && !rowsQuery.isFetchingNextPage) {
+					await rowsQuery.fetchNextPage();
+			}
+		},
+	});
+
 	// Dynamic column defs (built from server columns)
 	const makeCell = React.useCallback(
-		(col: UIColumn): ColumnDef<RowWire> => ({
+		(col: UIColumn, colIndex: number): ColumnDef<RowWire> => ({
 			id: col.id,
 			header: col.name,
 			accessorFn: (row) => row.data[col.id],
 			cell: ({ row, getValue }) => {
 				const v = getValue<string | number>();
-				const display =
-				v ?? (col.type === "NUMBER" ? 0 : ""); // default for empty values
+				const display = v ?? (col.type === "NUMBER" ? 0 : ""); // default for empty values
 				return (
 					<input
 						className="w-full bg-transparent outline-none"
+						{...nav.getCellProps(row.index, colIndex)}
 						value={String(display)}
 						onChange={(e) => {
 						const next =
@@ -126,12 +138,12 @@ export default function TableView({ baseId, tableId }: TableViewProps) {
 				);
 			},
 		}),
-		[updateEdit]
+		[nav, updateEdit]
 	);
 
 	const dynamicDataCols = React.useMemo<ColumnDef<RowWire, unknown>[]>(() => {
 		const cols = (colsQuery.data ?? []) as UIColumn[];
-		return cols.map((c) => makeCell(c));
+		return cols.map((c, i) => makeCell(c, i));
 	}, [colsQuery.data, makeCell]);
 
 	// Row index column
@@ -209,6 +221,8 @@ export default function TableView({ baseId, tableId }: TableViewProps) {
 		estimateSize: () => 40,
 		overscan: 10,
 	});
+
+	
 
 	//Infinite scroll trigger
 	React.useEffect(() => {
