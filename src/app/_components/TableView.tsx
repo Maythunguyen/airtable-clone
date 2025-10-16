@@ -3,13 +3,17 @@
 import * as React from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
+	flexRender,
+	getCoreRowModel,
+	useReactTable,
 } from "@tanstack/react-table";
 import { api } from "~/trpc/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCellKeyboardNav } from "~/hooks/useCellKeyboardNav";
+import TableToolBar from "./TableToolBar";
+
+
+
 
 type RowWire = {
 	id: string;
@@ -34,7 +38,7 @@ export default function TableView({ baseId, tableId }: TableViewProps) {
 	const utils = api.useUtils();
 	const [menuOpen, setMenuOpen] = React.useState(false);
 	const [edits, setEdits] = React.useState<Record<string, Record<string, string | number>>>({});
-
+	const [search, setSearch] = React.useState("");
 
 	const updateEdit = React.useCallback(
 		(rowId: string, colId: string, value: string | number) => {
@@ -49,8 +53,9 @@ export default function TableView({ baseId, tableId }: TableViewProps) {
 	const colsQuery = api.table.listColumnsSimple.useQuery({ tableId });
 
 	const rowsQuery = api.table.listRows.useInfiniteQuery(
-		{ tableId, limit: 200 },{ getNextPageParam: (last) => last.nextCursor ?? undefined, staleTime: 10_000,});
-
+		{ tableId, limit: 200, search },{ getNextPageParam: (last) => last.nextCursor ?? undefined, staleTime: 10_000,});
+	
+	
 	// Flatten page data
 	const items: RowWire[] = React.useMemo(() => {
 		if (!rowsQuery.data) return [];
@@ -100,7 +105,7 @@ export default function TableView({ baseId, tableId }: TableViewProps) {
 		[addColumn, colsQuery.data, tableId]
 	);
 
-	// Keyboard navigation
+	// Arrow navigation
 	const nav = useCellKeyboardNav({
 		getTotalCols: () => dynamicDataCols.length + 2,
 		getRowCount: () => viewRows.length,
@@ -244,24 +249,35 @@ export default function TableView({ baseId, tableId }: TableViewProps) {
 		rowsQuery.isFetchingNextPage,
 	]);
 
+	// Reset rows if search or tableId changes
+	React.useEffect(() => {
+		void utils.table.listRows.reset({ tableId, limit: 200, search });
+	}, [search, tableId, utils]);
+
+
+
 	return (
 		<div className="bg-white">
+			<TableToolBar
+				search={search}
+				setSearch={(v) => setSearch(v)}
+			/>
 			<div className="overflow-x-auto">
 				<table className="min-w-full border-collapse text-sm">
 					<thead className="bg-gray-50 text-gray-600">
 						{table.getHeaderGroups().map((hg) => (
-						<tr key={hg.id}>
-							{hg.headers.map((header) => (
-							<th key={header.id} className="border px-3 py-2 text-left">
-								{header.isPlaceholder
-								? null
-								: flexRender(
-									header.column.columnDef.header,
-									header.getContext()
-									)}
-							</th>
-							))}
-						</tr>
+							<tr key={hg.id}>
+								{hg.headers.map((header) => (
+									<th key={header.id} className="border px-3 py-2 text-left">
+										{header.isPlaceholder
+										? null
+										: flexRender(
+												header.column.columnDef.header,
+												header.getContext()
+											)}
+									</th>
+								))}
+							</tr>
 						))}
 					</thead>
 
@@ -294,7 +310,6 @@ export default function TableView({ baseId, tableId }: TableViewProps) {
 									title="Add 1 row"
 								>
 									{addRows.isPending ? "Adding…" : "+ 100k"}
-					
 								</button>
 							</td>
 						</tr>
@@ -314,7 +329,6 @@ export default function TableView({ baseId, tableId }: TableViewProps) {
 						</button>
 					)}
 				</div>
-				
 
 				{rowsQuery.isLoading && (
 					<div className="p-3 text-sm text-gray-500">Loading…</div>

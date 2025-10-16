@@ -65,11 +65,13 @@ model Row {
 
 	/// Computed full-text vector (added via SQL in migration)
 	searchVec Unsupported("tsvector")?
+    searchText String?   @db.Text 
 
 	createdAt DateTime @default(now())
 
 	@@index([tableId, id]) // seek pagination
 	@@index([tableId, createdAt])
+    @@index([tableId, searchText])
 }
 
 model View {

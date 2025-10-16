@@ -7,7 +7,6 @@ import { GoHome } from "react-icons/go";
 import { cn } from "~/lib/utils";
 import { SidebarWithWorkspaces } from "./WorkSpaceDashboard";
 import Star from "~/components/icons/Star";
-import Share from "~/components/icons/Share";
 
 export function SidebarDemo() {
 

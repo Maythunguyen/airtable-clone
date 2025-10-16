@@ -1,12 +1,12 @@
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import {
-  listTablesInput,
-  createTableInput,
-  deleteTableInput,
-  deleteColumnInput,
-  tableOutput,
-  columnOutput,
-  tableWithColumnsOutput,
+    listTablesInput,
+    createTableInput,
+    deleteTableInput,
+    deleteColumnInput,
+    tableOutput,
+    columnOutput,
+    tableWithColumnsOutput,
 } from "~/schemas/table";
 import { z } from "zod";
 import { faker } from "@faker-js/faker";
@@ -14,10 +14,10 @@ import { addRowsInput } from "~/schemas/row";
 import { AddColumnsInput } from "~/schemas/column";
 import { PrismaClient } from "@prisma/client";
 import type { Prisma, Column } from "@prisma/client";
-type JsonValue  = Prisma.JsonValue;
-type JsonObject = Prisma.JsonObject;
-type InputJson  = Prisma.InputJsonValue;
 
+function mkSearchText(obj: Record<string, string | number>) {
+     return Object.values(obj).join(" ");
+}
 // helper to fetch columns (we seed JSON keyed by columnId)
 async function getColumnsByTable(db: PrismaClient, tableId: string) {
     const cols: Column[] = await db.column.findMany({
@@ -35,57 +35,60 @@ export const tableRouter = createTRPCRouter({
         .input(listTablesInput)
         .output(z.array(tableWithColumnsOutput))
         .query(async ({ ctx, input }) => {
-        const tables = await ctx.db.table.findMany({
-            where: { baseId: input.baseId, base: { ownerId: ctx.session.user.id } },
-            include: { columns: true },
-            orderBy: { createdAt: "asc" },
-        });
+            const tables = await ctx.db.table.findMany({
+                where: { baseId: input.baseId, base: { ownerId: ctx.session.user.id } },
+                include: { columns: true },
+                orderBy: { createdAt: "asc" },
+            });
         return tables;
         }),
 
-    createTable: protectedProcedure
+     createTable: protectedProcedure
         .input(createTableInput)
         .output(tableOutput)
         .mutation(async ({ ctx, input }) => {
-            const result = await ctx.db.$transaction(async (tx) => {
-            const table = await tx.table.create({
+        const result = await ctx.db.$transaction(async (tx) => {
+                const table = await tx.table.create({
                 data: { baseId: input.baseId, name: input.name },
             });
 
             await tx.column.createMany({
-                data: [
-                { tableId: table.id, name: "Name",        type: "TEXT", position: 0 },
-                { tableId: table.id, name: "Notes",       type: "TEXT", position: 1 },
-                { tableId: table.id, name: "Assignee",    type: "TEXT", position: 2 },
-                { tableId: table.id, name: "Status",      type: "TEXT", position: 3 },
+            data: [
+                { tableId: table.id, name: "Name", type: "TEXT", position: 0 },
+                { tableId: table.id, name: "Notes", type: "TEXT", position: 1 },
+                { tableId: table.id, name: "Assignee", type: "TEXT", position: 2 },
+                { tableId: table.id, name: "Status", type: "TEXT", position: 3 },
                 { tableId: table.id, name: "Attachments", type: "TEXT", position: 4 },
-                ],
+            ],
             });
 
-            const createdCols = await tx.column.findMany({
-                where: { tableId: table.id },
-                orderBy: { position: "asc" },
-            });
-            
-            const byName = Object.fromEntries(createdCols.map(c => [c.name, c.id])) as Record<string, string>;
+            const createdCols = await tx.column.findMany({where: { tableId: table.id },orderBy: { position: "asc" },});
+
+            const byName = Object.fromEntries(createdCols.map((c) => [c.name, c.id])) as Record<string, string>;
             const colId = (name: string) => byName[name]!;
-            const rows = Array.from({ length: 5 }).map(() => ({
-                tableId: table.id,
-                data: {
+
+            const rows = Array.from({ length: 5 }).map(() => {
+                const obj = {
                     [colId("Name")]: faker.commerce.productName(),
                     [colId("Notes")]: faker.lorem.sentence(),
                     [colId("Assignee")]: `${faker.person.firstName()} ${faker.person.lastName()}`,
-                    [colId("Status")]: faker.helpers.arrayElement(["To Do", "In Progress", "Done"]),
+                    [colId("Status")]: faker.helpers.arrayElement([ "To Do","In Progress", "Done",]),
                     [colId("Attachments")]: "—",
-                } as Prisma.InputJsonValue,
-            }));
-                await tx.row.createMany({ data: rows });
-
-                return table;
+                };
+                const searchText = mkSearchText(obj);
+                return {
+                    tableId: table.id,
+                    data: obj as Prisma.InputJsonValue,
+                    searchText,
+                };
             });
+            await tx.row.createMany({ data: rows });
 
-            return result;
-        }),
+            return table;
+        });
+
+        return result;
+    }),
 
     addRows: protectedProcedure
         .input(addRowsInput)
@@ -95,17 +98,17 @@ export const tableRouter = createTRPCRouter({
                 where: { id: input.tableId, base: { ownerId: ctx.session.user.id } },
                 include: { base: true },
             });
-
             const { byName } = await getColumnsByTable(ctx.db, table.id);
             const mkRowData = (): Record<string, string | number> => {
                 const getId = (name: string) => byName[name]?.id ?? "";
-                return {
+                const obj = {
                     [getId("Name")]: faker.commerce.productName(),
                     [getId("Notes")]: faker.commerce.productDescription(),
                     [getId("Assignee")]: `${faker.person.firstName()} ${faker.person.lastName()}`,
                     [getId("Status")]: faker.helpers.arrayElement(["To Do", "In Progress", "Done"]),
                     [getId("Attachments")]: "—",
-                };
+                }
+                return obj
             };
             const CHUNK = 5_000;
             let remaining = input.count;
@@ -113,8 +116,9 @@ export const tableRouter = createTRPCRouter({
             while (remaining > 0) {
                 const n = Math.min(CHUNK, remaining);
                 const data = Array.from({ length: n }, () => ({
-                tableId: table.id,
-                data: mkRowData(),
+                    tableId: table.id,
+                    data: mkRowData(),
+                    searchText: mkSearchText(mkRowData()),
                 }));
                 await ctx.db.row.createMany({ data });
                 remaining -= n;
@@ -131,10 +135,15 @@ export const tableRouter = createTRPCRouter({
                 tableId: z.string().min(1),
                 limit: z.number().int().min(1).max(500).default(100),
                 cursor: z.string().nullish(), // last seen row.id
+                search: z.string().max(100).optional(),
             })
         )
         .query(async ({ ctx, input }) => {
-            const where = { tableId: input.tableId };
+            const where = {
+                tableId: input.tableId,
+                ...(input.search ? { searchText: { contains: input.search, mode: "insensitive" } } : {}),
+                ...(input.cursor ? {id: { gt: input.cursor } } : {}),
+            }
             const take = input.limit + 1;
 
             const rows = await ctx.db.row.findMany({
@@ -157,8 +166,8 @@ export const tableRouter = createTRPCRouter({
         .input(deleteTableInput)
         .output(z.object({ success: z.literal(true) }))
         .mutation(async ({ ctx, input }) => {
-        await ctx.db.table.delete({ where: { id: input.id } });
-        return { success: true };
+            await ctx.db.table.delete({ where: { id: input.id } });
+            return { success: true };
         }),
 
     listColumns: protectedProcedure
