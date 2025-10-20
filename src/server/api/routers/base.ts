@@ -49,21 +49,27 @@ export const baseRouter = createTRPCRouter({
 
                 // Seed 5 faker rows
                 const rows = Array.from({ length: 5 }).map(() => {
-                const nameId = String(colId("Name"));
-                const notesId = String(colId("Notes"));
-                const assigneeId = String(colId("Assignee"));
-                const statusId = String(colId("Status"));
-                const attachmentsId = String(colId("Attachments"));
+                    
+                    const nameId = String(colId("Name"));
+                    const notesId = String(colId("Notes"));
+                    const assigneeId = String(colId("Assignee"));
+                    const statusId = String(colId("Status"));
+                    const attachmentsId = String(colId("Attachments"));
 
-                return {
-                    tableId: table.id,
-                    data: {
+                    const obj = {
                         [nameId]: faker.commerce.productName(),
                         [notesId]: faker.lorem.sentence(),
                         [assigneeId]: `${faker.person.firstName()} ${faker.person.lastName()}`,
                         [statusId]: faker.helpers.arrayElement(["To Do", "In Progress", "Done"]),
                         [attachmentsId]: "—",
-                    } as InputJson,
+                    }
+
+                    const searchText = Object.values(obj).join(" ");
+
+                return {
+                    tableId: table.id,
+                    data: obj as InputJson,
+                    searchText,
                 };
             });
 

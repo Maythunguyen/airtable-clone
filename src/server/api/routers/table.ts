@@ -13,11 +13,27 @@ import { faker } from "@faker-js/faker";
 import { addRowsInput } from "~/schemas/row";
 import { AddColumnsInput } from "~/schemas/column";
 import { PrismaClient } from "@prisma/client";
-import type { Prisma, Column } from "@prisma/client";
+import { Prisma } from "@prisma/client";   // value import
+import type { Column } from "@prisma/client";
+
+type RowRecord = {
+    id: string;
+    tableId: string;
+    data: Prisma.JsonValue;
+    searchText: string | null;
+    createdAt: Date;
+};
+
+function sortExprSQL(colId: string, type: "TEXT" | "NUMBER") {
+    return type === "NUMBER"
+        ? `(("Row"."data"->>'${colId}')::numeric)` // cast to numeric
+        : `("Row"."data"->>'${colId}')`;           // text
+}
 
 function mkSearchText(obj: Record<string, string | number>) {
      return Object.values(obj).join(" ");
 }
+
 // helper to fetch columns (we seed JSON keyed by columnId)
 async function getColumnsByTable(db: PrismaClient, tableId: string) {
     const cols: Column[] = await db.column.findMany({
@@ -127,41 +143,79 @@ export const tableRouter = createTRPCRouter({
             return { success: true,  count: input.count };
         }),
     
-    listRows: protectedProcedure
-        .input(
-        // simple keyset pagination by (tableId, id)
-        // add optional sort/filter/search later and push down to SQL
-            z.object({
-                tableId: z.string().min(1),
-                limit: z.number().int().min(1).max(500).default(100),
-                cursor: z.string().nullish(), // last seen row.id
-                search: z.string().max(100).optional(),
-            })
-        )
-        .query(async ({ ctx, input }) => {
-            const where = {
-                tableId: input.tableId,
-                ...(input.search ? { searchText: { contains: input.search, mode: "insensitive" } } : {}),
-                ...(input.cursor ? {id: { gt: input.cursor } } : {}),
-            }
-            const take = input.limit + 1;
+    
 
-            const rows = await ctx.db.row.findMany({
-                where,
-                take,
-                ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
-                orderBy: { id: "asc" },
-            });
+    
+        listRows: protectedProcedure
+    .input(
+        z.object({
+        tableId: z.string().min(1),
+        limit: z.number().int().min(1).max(500).default(100),
+        cursor: z.string().nullish(), // last seen row.id
+        search: z.string().max(100).optional(),
+        sort: z.object({
+            columnId: z.string().min(1),
+            dir: z.enum(["asc", "desc"]).default("asc"),
+            type: z.enum(["TEXT", "NUMBER"]).default("TEXT"),
+            nullsLast: z.boolean().optional(),
+        }).optional(),
+        })
+    )
+    .query(async ({ ctx, input }) => {
+        const pageSize = input.limit ?? 100;
 
-            let nextCursor: string | undefined = undefined;
-            if (rows.length > input.limit) {
-                const next = rows.pop()!;
-                nextCursor = next.id;
-            }
-            return { items: rows, nextCursor };
-        }),
+        // Build WHERE
+        const params: string[] = [input.tableId];
+        let whereSQL = `WHERE "tableId" = $1`;
 
+        if (input.search && input.search.trim().length > 0) {
+            params.push(`%${input.search.trim()}%`);
+            whereSQL += ` AND "searchText" ILIKE $${params.length}`;
+        }
 
+        if (input.cursor) {
+            params.push(input.cursor);
+            whereSQL += ` AND "id" > $${params.length}`;
+        }
+
+        // Build ORDER BY
+        let orderSQL = `ORDER BY "id" ASC`;
+        if (input.sort) {
+            const dir = input.sort.dir === "desc" ? "DESC" : "ASC";
+            const nulls = input.sort.nullsLast ? " NULLS LAST" : "";
+            // bind the JSON key (columnId) as a parameter too
+            params.push(input.sort.columnId);
+            const keyIdx = params.length; // index of columnId param we just pushed
+
+            const valueExpr =
+                input.sort.type === "NUMBER"
+                ? `(jsonb_extract_path_text("data", $${keyIdx})::numeric)`
+                : `jsonb_extract_path_text("data", $${keyIdx})`;
+
+            // Secondary sort by id for stable pagination
+            orderSQL = `ORDER BY ${valueExpr} ${dir}${nulls}, "id" ASC`;
+        }
+
+        // Compose SQL (LIMIT+1 for nextCursor detection)
+        const sql = `
+            SELECT "id","tableId","data","searchText","createdAt"
+            FROM "Row"
+            ${whereSQL}
+            ${orderSQL}
+            LIMIT ${pageSize + 1}
+        `;
+
+        const rows = await ctx.db.$queryRawUnsafe<RowRecord[]>(sql,...params);
+
+        let nextCursor: string | undefined;
+        if (rows.length > pageSize) {
+            const next = rows[rows.length - 1];
+            nextCursor = next ? next.id : undefined;
+            rows.pop();
+        }
+
+        return { items: rows, nextCursor };
+    }),
     deleteTable: protectedProcedure
         .input(deleteTableInput)
         .output(z.object({ success: z.literal(true) }))
@@ -183,7 +237,6 @@ export const tableRouter = createTRPCRouter({
         .query(async ({ ctx, input }) => {
             const where = { tableId: input.tableId };
             const take = input.limit + 1;
-
             const columns = await ctx.db.column.findMany({
                 where,
                 take,
@@ -217,9 +270,7 @@ export const tableRouter = createTRPCRouter({
 
             return await ctx.db.$transaction(
                 async (tx) => {
-                    const col = await tx.column.create({
-                        data: { tableId, name, type, position },
-                    });
+                    const col = await tx.column.create({data: { tableId, name, type, position },});
 
                     const defaultValue = type === "NUMBER" ? 0 : "";
 
@@ -233,13 +284,13 @@ export const tableRouter = createTRPCRouter({
                     return col;
                 },
                 { timeout: 20_000, maxWait: 10_000 }
-                );
+            );
         }),
     deleteColumn: protectedProcedure
         .input(deleteColumnInput)
         .output(z.object({ success: z.literal(true) }))
         .mutation(async ({ ctx, input }) => {
-        await ctx.db.column.delete({ where: { id: input.id } });
-        return { success: true };
+            await ctx.db.column.delete({ where: { id: input.id } });
+            return { success: true };
     }),
 });

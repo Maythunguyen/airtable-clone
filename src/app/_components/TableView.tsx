@@ -11,7 +11,7 @@ import { api } from "~/trpc/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCellKeyboardNav } from "~/hooks/useCellKeyboardNav";
 import TableToolBar from "./TableToolBar";
-
+import type { SortState, UIColumn as ToolbarUIColumn } from "./SortPopover";
 
 
 
@@ -22,12 +22,7 @@ type RowWire = {
 };
 
 // A minimal client-safe column type (avoid importing Prisma types in client)
-type UIColumn = {
-	id: string;
-	name: string;
-	type: "TEXT" | "NUMBER";
-	position: number;
-};
+type UIColumn = ToolbarUIColumn & { position?: number };
 
 type TableViewProps = {
 	baseId: string;
@@ -39,6 +34,7 @@ export default function TableView({ baseId, tableId }: TableViewProps) {
 	const [menuOpen, setMenuOpen] = React.useState(false);
 	const [edits, setEdits] = React.useState<Record<string, Record<string, string | number>>>({});
 	const [search, setSearch] = React.useState("");
+	const [sort, setSort] = React.useState<SortState | undefined>(undefined);
 
 	const updateEdit = React.useCallback(
 		(rowId: string, colId: string, value: string | number) => {
@@ -52,8 +48,14 @@ export default function TableView({ baseId, tableId }: TableViewProps) {
 	//Queries
 	const colsQuery = api.table.listColumnsSimple.useQuery({ tableId });
 
+	const uiCols: UIColumn[] = React.useMemo(() => {
+		const cols = (colsQuery.data ?? []) as UIColumn[];
+		// keep server-defined order if provided
+		return [...cols].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+	}, [colsQuery.data]);
+
 	const rowsQuery = api.table.listRows.useInfiniteQuery(
-		{ tableId, limit: 200, search },{ getNextPageParam: (last) => last.nextCursor ?? undefined, staleTime: 10_000,});
+		{ tableId, limit: 200, search, sort },{ getNextPageParam: (last) => last.nextCursor ?? undefined, staleTime: 10_000,});
 	
 	
 	// Flatten page data
@@ -209,8 +211,6 @@ export default function TableView({ baseId, tableId }: TableViewProps) {
 		() => [indexCol, ...dynamicDataCols, plusCol],
 		[indexCol, dynamicDataCols, plusCol]
 	);
-
-
 	const table = useReactTable({
 		data: viewRows,
 		columns,
@@ -255,12 +255,17 @@ export default function TableView({ baseId, tableId }: TableViewProps) {
 	}, [search, tableId, utils]);
 
 
-
 	return (
 		<div className="bg-white">
 			<TableToolBar
 				search={search}
-				setSearch={(v) => setSearch(v)}
+				setSearch={setSearch}
+				columns={uiCols}
+				sort={sort}
+				onSortChange={(next) => {
+					setSort(next);
+					void rowsQuery.refetch();
+				}}
 			/>
 			<div className="overflow-x-auto">
 				<table className="min-w-full border-collapse text-sm">

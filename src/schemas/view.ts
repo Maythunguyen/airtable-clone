@@ -1,39 +1,25 @@
 import { z } from "zod";
 
-export const textFilterOp = z.enum(["contains", "not_contains", "is_empty", "not_empty", "eq"]);
-export const numberFilterOp = z.enum(["gt", "lt", "eq"]);
+const FilterOpText = z.enum(["is_empty", "is_not_empty", "contains", "not_contains", "eq", "neq"]);
+const FilterOpNum  = z.enum(["eq","neq","gt","gte","lt","lte","is_empty","is_not_empty"]);
 
-export const columnFilter = z.discriminatedUnion("kind", [
-    z.object({
-        kind: z.literal("text"),
-        columnId: z.string().cuid(),
-        op: textFilterOp,
-        value: z.string().optional(),
-    }),
-    z.object({
-        kind: z.literal("number"),
-        columnId: z.string().cuid(),
-        op: numberFilterOp,
-        value: z.number().optional(),
-    }),
-]);
-
-export const sortSpec = z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("text"), columnId: z.string().cuid(), dir: z.enum(["asc", "desc"]) }),
-    z.object({ kind: z.literal("number"), columnId: z.string().cuid(), dir: z.enum(["asc", "desc"]) }),
-]);
-
-export const viewConfig = z.object({
-    filters: z.array(columnFilter),
-    sort: sortSpec.optional(),
-    search: z.string().optional(),
-    visibleColumns: z.array(z.string().cuid()).optional(),
+export const ViewFilterSchema = z.object({
+    columnId: z.string().min(1),
+    type: z.enum(["TEXT","NUMBER"]),
+    op: z.union([FilterOpText, FilterOpNum]),
+    value: z.union([z.string(), z.number()]).optional(), // empty/not_empty don’t need value
 });
-export type ViewConfigInput = z.infer<typeof viewConfig>;
 
-export const saveViewInput = z.object({
-    tableId: z.string().cuid(),
-    name: z.string().min(1).max(80),
-    config: viewConfig,
+export const ViewSortSchema = z.object({
+    columnId: z.string().min(1),
+    type: z.enum(["TEXT","NUMBER"]),
+    dir: z.enum(["asc","desc"]).default("asc"),
+    nullsLast: z.boolean().optional(),
 });
-export type SaveViewInput = z.infer<typeof saveViewInput>;
+
+export const ViewConfigSchema = z.object({
+    search: z.string().max(200).optional(),
+    filters: z.array(ViewFilterSchema).optional(),
+    sort: ViewSortSchema.optional(),
+    hiddenColumnIds: z.array(z.string()).optional(),
+});
